@@ -49,7 +49,8 @@ RUN pip3 install --no-cache-dir numpy==1.26.4 \
        --index-url https://download.pytorch.org/whl/cpu
 
 # ultralytics 8.3.28:与训练环境一致;pip 检测到 torch/torchvision 已满足要求,不会动它们
-RUN pip3 install --no-cache-dir ultralytics==8.3.28
+# onnxsim:ONNX 图精简工具(README 2.3 节)
+RUN pip3 install --no-cache-dir ultralytics==8.3.28 onnxsim
 
 # RKNN-Toolkit2 2.3.2(核心转换工具)+ pycocotools(mAP 评估)
 RUN pip3 install --no-cache-dir rknn-toolkit2==2.3.2 pycocotools

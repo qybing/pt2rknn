@@ -29,7 +29,7 @@ pt2rknn/
 PC / x86_64 Linux 服务器                              RK3588 板子
 ─────────────────────────────────────                ──────────────────
 ① 环境:装 rknn-toolkit2
-② .pt → ONNX(官方 fork 导出)
+② .pt → ONNX(官方 fork 导出)→ onnxsim 精简
 ③ 验证关卡A:.pt vs .onnx 对比
 ④ 准备量化校准集(图片 + txt 清单)
 ⑤ ONNX → RKNN(convert.py,fp/i8)
@@ -179,7 +179,7 @@ python -c "import ultralytics; print(ultralytics.__file__)"
 # 如果指向 site-packages/ultralytics/...,说明环境混了,重开一个干净环境重装
 ```
 
-导出时还会用到 onnx/onnxslim,一般运行时自动安装;离线环境手动 `pip install onnx onnxslim`。
+导出时还会用到 onnx/onnxslim,一般运行时自动安装;离线环境手动 `pip install onnx onnxslim`。精简工具另装:`pip install onnxsim`(见 2.3 节)。
 
 > **Docker 镜像用户(1.4 节)做法不同**:镜像 site-packages 里已装 `ultralytics==8.3.28`,fork 在 `/opt/ultralytics_yolo11` 且**没有** pip 安装——**不要**在容器里再执行 `pip install -e .`(会把 8.3.28 覆盖掉),导出时用 `PYTHONPATH=/opt/ultralytics_yolo11 python ./ultralytics/engine/exporter.py` 方式,见 1.4 节。
 
@@ -189,12 +189,36 @@ python -c "import ultralytics; print(ultralytics.__file__)"
 # ① 修改 ./ultralytics/cfg/default.yaml 中的 model 字段,指向你的权重:
 #    model: /root/code/rknn/helmet_y11s_best.pt
 vi ultralytics/cfg/default.yaml
+# 调整 ./ultralytics/cfg/default.yaml 中 model 文件路径，默认为 yolo11n.pt，若自己训练模型，请调接至对应的路径。支持检测、分割、姿态、旋转框检测模型。
+# 如填入 yolo11n.pt 导出检测模型
+# 如填入 yolo11n-seg.pt 导出分割模型
+# 如填入 yolo11n-pose.pt 导出姿态模型
+# 如填入 yolo11n-obb.pt 导出OBB模型
 
-# ② 导出(检测/分割/姿态/旋转框任务的 pt 都支持)
-python ./ultralytics/engine/exporter.py     # 生成 best.onnx(与 pt 同目录同名)
+export PYTHONPATH=./
+python ./ultralytics/engine/exporter.py
+
+# 执行完毕后，会生成 ONNX 模型. 假如原始模型为 yolo11n.pt，则生成 yolo11n.onnx 模型。
 ```
 
 > 用新版 ultralytics 训练的 `.pt` 若在 fork 里加载报错,在 fork 环境中重新加载权重导出即可(结构相同,不用重训)。
+
+### 2.3 用 onnxsim 精简 ONNX(推荐)
+
+导出的 ONNX 建议先用 [onnx-simplifier](https://github.com/daquexian/onnx-simplifier) 精简一遍:常量折叠、合并冗余算子、删除无关节点,得到的图更小更干净,RKNN 转换更快、也更少踩算子融合的怪问题。
+
+```bash
+pip install onnxsim        # 清华源: pip install onnxsim -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 基本用法:输入模型 + 输出模型(两种写法等价)
+python -m onnxsim helmet_y11s_best.onnx helmet_y11s_best_sim.onnx
+onnxsim helmet_y11s_best.onnx helmet_y11s_best_sim.onnx
+```
+
+- 精简是**等语义改写**(只做常量折叠/算子合并/死代码删除),输出数值结果不变;对 fork 导出的拆头结构(6/9 路输出)同样适用,**输出结构不会变**;
+- 用 Netron 打开 `*_sim.onnx` 检查:节点数明显变少、输入输出 shape 与原来一致,即精简正常;
+- **后续所有步骤统一用精简版**:关卡 A 的 `--onnx`、convert.py 的转换输入、compare_onnx_rknn.py 的 `--onnx`,一条链路一个文件,避免"哪个版本转的"对不上号;
+- 极少数情况下 onnxsim 会把个别算子折叠成 toolkit2 不认识的组合(表现为 build 阶段报 unsupported op)——此时换回**未精简**版本转 RKNN 对比一下即可定位,两种都能转就选精简版。
 
 ---
 
