@@ -10,6 +10,8 @@
 ```text
 pt2rknn/
 ├── README.md             ← 本教程
+├── Dockerfile            ← 一键转换环境镜像(第 1.4 节,推荐方式)
+├── .dockerignore
 ├── make_calib.py         ← 量化校准集清单生成脚本(第 4 节使用,纯 Python 标准库,无需额外安装)
 ├── compare_pt_onnx.py    ← .pt 与 .onnx 转换精度对比脚本(第 3 节关卡 A 使用)
 ├── compare_onnx_rknn.py  ← ONNX 与 RKNN 输出一致性对比脚本(第 6.2 节关卡 B/C 使用;
@@ -104,6 +106,43 @@ python -c "from rknn.api import RKNN; print('ok')"
 
 - 换 Python 版本时替换 `cp310`/`3.10`(如 Python 3.11 → `cp311`/`requirements_cp311-2.3.2.txt`);
 - 有外网时也可用 PyPI 在线装(依赖自动带齐):`pip install rknn-toolkit2 -i https://pypi.org/simple`;已装旧版升级:`pip install rknn-toolkit2 --upgrade`,升级后之前转的模型要重转,保持版本一致。
+
+### 1.4 (推荐)用 Docker 镜像,跳过环境搭建
+
+不想折腾环境?本仓库的 `Dockerfile` 把整条转换链路打包成一个镜像:**toolkit2 2.3.2、官方 YOLO11 fork、model_zoo、两个对比脚本**全部预装到位,构建一次,任何装了 Docker 的机器直接开工。
+
+```bash
+# ① 构建镜像(仓库根目录执行;首次约 10~20 分钟,CPU 版 torch 已做精简)
+docker build -t pt2rknn:2.3.2 .
+
+# ② 运行:把你的权重/图片/校准清单所在目录挂载到 /workspace
+docker run -it --rm -v /root/code/rknn:/workspace pt2rknn:2.3.2 bash
+# Windows Docker Desktop 示例:
+# docker run -it --rm -v E:\jovan\code\rk3588:/workspace pt2rknn:2.3.2 bash
+```
+
+**镜像内固定路径**(进容器就能用,不需要再 clone 任何东西):
+
+| 路径 | 内容 |
+|---|---|
+| `/opt/ultralytics_yolo11` | 官方 fork;改 `ultralytics/cfg/default.yaml` 的 model 后跑 `python /opt/ultralytics_yolo11/ultralytics/engine/exporter.py` |
+| `/opt/rknn_model_zoo` | 官方 model_zoo;`cd /opt/rknn_model_zoo/examples/yolo11/python` 就是 convert.py / yolo11.py 所在 |
+| `/opt/rknn_model_zoo/examples/yolo11/python/compare_onnx_rknn.py` | 已按 6.2 节要求放好,直接跑 |
+| `/opt/tools/` | `make_calib.py`、`compare_pt_onnx.py` |
+| `/workspace` | 你挂载进来的数据(权重、图片、校准清单、输出的 .rknn) |
+
+**镜像里能做 / 不能做**:
+
+| 操作 | 容器里 | 说明 |
+|---|---|---|
+| ② 导出 ONNX / ③ 关卡A / ④ 校准集 / ⑤ 转 RKNN | ✅ | 纯 CPU,toolkit2 2.3.2 已装 |
+| ⑥ 模拟器验证 RKNN 权重(yolo11.py 不带 --target、compare_onnx_rknn.py) | ✅ | 模拟器不碰硬件,和真板有细微差异,但足以验收转换质量 |
+| mAP 评估(模拟器) | ✅ | pycocotools 已装 |
+| adb / scp 传文件上板 | ✅(网络方式) | `adb connect 板子IP` 或 `scp`;USB 方式需 Linux 宿主机 + `--privileged -v /dev/bus/usb:/dev/bus/usb` |
+| 连板调试(`--target rk3588`) | ❌ 默认不行 | 同上 USB 直通限制;这类真机验证直接到板子上做(第 7 节) |
+| 板上运行 | — | 本来就在板子上执行,与镜像无关 |
+
+> 注意两点:① 镜像构建时 `git clone --depth 1` 官方仓库,重新 build 会拉到官方最新代码——toolkit2 已用 `==2.3.2` 钉死版本,fork/model_zoo 跟随官方更新;② 容器里改 fork 的 `default.yaml` 在 `/opt/ultralytics_yolo11/ultralytics/cfg/` 下,容器删除即还原,重要产物(ONNX/RKNN/对比图)请输出到 `/workspace`。
 
 ---
 

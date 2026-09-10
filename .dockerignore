@@ -1,0 +1,13 @@
+# 只保留构建镜像需要的脚本,权重/图片/生成物不进构建上下文
+.git/
+weight/
+result_views/
+compare_result/
+images/
+*.pt
+*.onnx
+*.rknn
+helmet_calib.txt
+__pycache__/
+README.md
+.gitignore
