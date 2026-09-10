@@ -9,7 +9,7 @@
 
 ```text
 pt2rknn/
-├── pt转换rknn.md         ← 本教程
+├── README.md             ← 本教程
 ├── make_calib.py         ← 量化校准集清单生成脚本(第 4 节使用,纯 Python 标准库,无需额外安装)
 ├── compare_pt_onnx.py    ← .pt 与 .onnx 转换精度对比脚本(第 3 节关卡 A 使用)
 ├── compare_onnx_rknn.py  ← ONNX 与 RKNN 输出一致性对比脚本(第 6.2 节关卡 B/C 使用;
@@ -516,6 +516,36 @@ export LD_LIBRARY_PATH=./lib
 
 > C demo 的后处理与官方 fork 导出结构配套;换自己的模型时同步修改类别数定义和 label 文件。
 
+### 7.4 发挥板子最大性能:定频脚本 scaling_frequency.sh
+
+跑性能数据、对比优化效果之前,先给板子**定频**——把 CPU / NPU / DDR 锁在最高频,消除动态调频(DVFS)带来的波动。这是官方 model_zoo 仓库根目录自带的脚本(`scaling_frequency.sh`),官方所有性能参考数据都是定频后测出来的。
+
+**在板子上以 root 运行**(脚本要写 `/sys` 节点,必须 root):
+
+```bash
+# 先把脚本传上板(PC 上执行)
+adb push rknn_model_zoo/scaling_frequency.sh /userdata/
+adb shell
+
+# 板子上执行
+cd /userdata
+chmod +x scaling_frequency.sh
+./scaling_frequency.sh -c rk3588
+```
+
+**参数说明**:
+
+| 参数 | 说明 |
+|---|---|
+| `-c <芯片名>` | **必填**,指定芯片,脚本按名字套用对应的定频策略。可选:`rk3588` / `rk3576` / `rk3568` / `rk3566` / `rk3562` / `rv1126b` / `rv1106` / `rv1103` / `rv1126` / `rv1109` / `rk1808` / `rk3399pro` |
+| `-h` | 打印帮助 |
+
+**对 RK3588 具体做了什么**(脚本内建值):CPU 大核(A76,cpu4~7)定 **2256MHz**、小核(A55,cpu0~3)定 **1800MHz**、NPU 定 **1GHz**、DDR 定 **2112MHz**,并禁用全部 8 核的 cpuidle 深度睡眠,防止待机降频。
+
+**检查结果**:脚本执行完会在当前目录生成 `freq_set_status` 文件,`cat freq_set_status` 可以对比"设定值 vs 实际查询值";每一项也会实时打印 `Seting Success` / `Seting Failed`。部分固件不开放某些调频节点(比如 DDR/NPU 的 devfreq 接口不存在),脚本会打印 `not support adjust` 并自动走兜底逻辑——**只要 CPU/NPU 达到目标频率,性能数据就有意义**;若 NPU 频率没锁上,说明固件不支持,数据仅供参考。
+
+> ⚠️ 注意:定频主要面向**性能测试与跑分对比**。长期产品运行建议保持默认调频策略(省电、降温),否则功耗和发热会明显上升;如果产品需要稳定帧率,可以只把 CPU/NPU governor 设为 performance,不必照搬整套定频。
+
 ---
 
 ## 8. 验收流程总结(一图流)
@@ -547,6 +577,7 @@ export LD_LIBRARY_PATH=./lib
 | 板端 python demo 报 rknn_server 异常 | 连板调试才需要 rknn_server;板上手动启动:`adb shell "nohup /usr/bin/rknn_server >/dev/null" &` |
 | compare_pt_onnx.py 报 `Unsupported ONNX outputs` | 该脚本支持端到端单输出与拆头 6/9 路 RK 优化输出;遇到其他布局需按实际输出 shape 扩展 `decode_onnx()` |
 | compare_pt_onnx.py 找不到权重 | 默认从 `weight/` 子目录读 `helmet_y11s_best.pt/.onnx`;不放该目录就用 `--pt/--onnx` 显式指定 |
+| 板上推理性能达不到参考值 | 先定频(7.4 节 `scaling_frequency.sh -c rk3588`),再绑定 CPU 大核测试;确认没有其他进程占用 NPU / DDR 带宽(官方 FAQ 1.5) |
 | compare_onnx_rknn.py 启动报 `ValueError: 'rknn_model_zoo' is not in list` | 脚本必须放在 `rknn_model_zoo/examples/yolo11/python/` 目录下运行(它 import 同目录的 yolo11.py 与 py_utils,见 6.2 节) |
 | compare_onnx_rknn.py 对比图里两边框完全不同 | 先看 `Output index mapping` 是否对齐;再检查 --onnx 是否 fork 导出、--rknn 与 onnx 是否同一权重的产物、mean/std 是否一致(FAIL 时按 6.2 节排查) |
 | 不修改 YOLO 结构直接转行吗 | 可以但不推荐(官方 FAQ 3.5):量化精度差、性能差,且 demo 后处理代码对不上 |
@@ -567,6 +598,7 @@ export LD_LIBRARY_PATH=./lib
 | WSL 使用指南 | `rknn-toolkit2/doc/WSL中使用RKNN_ToolKit2.md` |
 | rknn_server 连板说明 | `rknn-toolkit2/doc/rknn_server_proxy.md` |
 | Model Zoo FAQ(官方踩坑合集) | `rknn_model_zoo/FAQ_CN.md` |
+| 定频脚本(发挥板子性能,见 7.4 节) | `rknn_model_zoo/scaling_frequency.sh` |
 | RKNPU2 SDK 网盘(镜像、预转模型) | https://console.zbox.filez.com/l/I00fc3 (提取码 rknn) |
 
 > 文档基于官方 v2.3.2(2025-04-03 发布)整理。本目录配套两个工具脚本:`make_calib.py` 生成量化校准清单(第 4 节),`compare_pt_onnx.py` 做 .pt 与 .onnx 的转换精度对比(第 3 节)。
