@@ -1,0 +1,19 @@
+# 模型权重与推理产物不上传(体积大,且 .rknn 按芯片编译)
+weight/
+*.pt
+*.onnx
+*.rknn
+
+# 对比脚本生成的可视化结果
+result_views/
+
+# Python 运行产物
+__pycache__/
+*.pyc
+
+# 校准集清单(含本机绝对路径,按需各自生成)
+helmet_calib.txt
+
+# 系统文件
+Thumbs.db
+.DS_Store
