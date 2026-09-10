@@ -109,7 +109,7 @@ python -c "from rknn.api import RKNN; print('ok')"
 
 ### 1.4 (推荐)用 Docker 镜像,跳过环境搭建
 
-不想折腾环境?本仓库的 `Dockerfile` 把整条转换链路打包成一个镜像:**toolkit2 2.3.2、官方 YOLO11 fork、model_zoo、两个对比脚本**全部预装到位,构建一次,任何装了 Docker 的机器直接开工。
+不想折腾环境?本仓库的 `Dockerfile` 把整条转换链路打包成一个镜像:**toolkit2 2.3.2、ultralytics 8.3.28、RKNN 导出 fork、model_zoo、两个对比脚本**全部预装到位;pip 走**清华源**,torch/torchvision 锁定 CPU 版(**2.4.0 / 0.19.0**)不被后续安装改动。构建一次,任何装了 Docker 的机器直接开工。
 
 ```bash
 # ① 构建镜像(仓库根目录执行;首次约 10~20 分钟,CPU 版 torch 已做精简)
@@ -125,11 +125,21 @@ docker run -it --rm -v /root/code/rknn:/workspace pt2rknn:2.3.2 bash
 
 | 路径 | 内容 |
 |---|---|
-| `/opt/ultralytics_yolo11` | 官方 fork;改 `ultralytics/cfg/default.yaml` 的 model 后跑 `python /opt/ultralytics_yolo11/ultralytics/engine/exporter.py` |
+| `/opt/ultralytics_yolo11` | RKNN 导出专用 fork(**只 clone 未 pip 安装**);先改 `ultralytics/cfg/default.yaml` 的 model,再用下方命令导出 |
 | `/opt/rknn_model_zoo` | 官方 model_zoo;`cd /opt/rknn_model_zoo/examples/yolo11/python` 就是 convert.py / yolo11.py 所在 |
 | `/opt/rknn_model_zoo/examples/yolo11/python/compare_onnx_rknn.py` | 已按 6.2 节要求放好,直接跑 |
 | `/opt/tools/` | `make_calib.py`、`compare_pt_onnx.py` |
 | `/workspace` | 你挂载进来的数据(权重、图片、校准清单、输出的 .rknn) |
+
+**导出 ONNX(容器内)**:
+
+```bash
+vi /opt/ultralytics_yolo11/ultralytics/cfg/default.yaml    # model 字段指向你的 .pt
+cd /opt/ultralytics_yolo11
+PYTHONPATH=/opt/ultralytics_yolo11 python ./ultralytics/engine/exporter.py
+```
+
+**为什么是双轨设计**:pip 包名冲突——官方 fork 的包名也叫 `ultralytics`。镜像里 site-packages 装的是 `ultralytics==8.3.28`(与训练环境一致,`import ultralytics` 默认走它,`compare_pt_onnx.py` 加载 `.pt` 用的就是它);RKNN 导出 fork **只 clone 不安装**,导出时用 `PYTHONPATH` 临时切到 fork 代码——这也正是官方 RKOPT 文档的原始用法。torch/torchvision 锁死 `2.4.0(CPU) / 0.19.0`,后续 `ultralytics`、`rknn-toolkit2` 的安装依赖已满足,pip 不会重装或升级它们。
 
 **镜像里能做 / 不能做**:
 
@@ -170,6 +180,8 @@ python -c "import ultralytics; print(ultralytics.__file__)"
 ```
 
 导出时还会用到 onnx/onnxslim,一般运行时自动安装;离线环境手动 `pip install onnx onnxslim`。
+
+> **Docker 镜像用户(1.4 节)做法不同**:镜像 site-packages 里已装 `ultralytics==8.3.28`,fork 在 `/opt/ultralytics_yolo11` 且**没有** pip 安装——**不要**在容器里再执行 `pip install -e .`(会把 8.3.28 覆盖掉),导出时用 `PYTHONPATH=/opt/ultralytics_yolo11 python ./ultralytics/engine/exporter.py` 方式,见 1.4 节。
 
 ### 2.2 导出
 
