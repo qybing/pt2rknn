@@ -10,16 +10,33 @@
 ```text
 pt2rknn/
 ├── README.md             ← 本教程
-├── Dockerfile            ← 一键转换环境镜像(第 1.4 节,推荐方式)
-├── .dockerignore
+├── Dockerfile / .dockerignore
+│                         ← 一键转换环境镜像(第 1.4 节,推荐方式)
 ├── make_calib.py         ← 量化校准集清单生成脚本(第 4 节使用,纯 Python 标准库,无需额外安装)
-├── compare_pt_onnx.py    ← .pt 与 .onnx 转换精度对比脚本(第 3 节关卡 A 使用)
-├── compare_onnx_rknn.py  ← ONNX 与 RKNN 输出一致性对比脚本(第 6.2 节关卡 B/C 使用;
-│                             注意:需拷到 rknn_model_zoo/examples/yolo11/python/ 目录下运行)
+├── compare_pt_onnx.py    ← 第一代对比脚本:pt ↔ onnx(第 3.1 节教程示例)
+├── compare_onnx_rknn.py  ← 第一代对比脚本:onnx ↔ rknn 模拟器(第 6.2 节教程示例)
+├── compare_pt_onnx_yolo.py      ← 新一代对比脚本:pt ↔ onnx(多模型族,见专项文档索引)
+├── compare_onnx_rknn_yolo.py    ← 新一代对比脚本:onnx ↔ rknn(板端 NPU,见专项文档索引)
+├── compare_pt_rknn_yolo.py      ← 新一代对比脚本:pt ↔ rknn 直接终验(见专项文档索引)
+├── COMPARE_PT_ONNX.md    ← 专项文档:pt ↔ onnx 对比(对应 compare_pt_onnx_yolo.py)
+├── COMPARE_ONNX_RKNN.md  ← 专项文档:onnx ↔ rknn 对比(对应 compare_onnx_rknn_yolo.py)
+├── COMPARE_PT_RKNN.md    ← 专项文档:pt ↔ rknn 终验(对应 compare_pt_rknn_yolo.py)
+├── EXPORT_YOLO26_RKNN_I8.md  ← 专项文档:YOLO26 → 6路 raw ONNX → INT8 RKNN 导出全流程
 ├── images/               ← 对比脚本默认的测试图目录(放你自己的测试图,当前有示例图)
 └── weight/               ← (按需创建)按脚本默认路径放 helmet_y11s_best.pt 和 helmet_y11s_best.onnx;
                              也可不建目录,直接用 --pt/--onnx 参数指定
 ```
+
+### 专项文档索引(新一代对比工具与 YOLO26 导出)
+
+| 文档 | 对应脚本 | 对比/内容 | 运行位置 | 适用模型 |
+|---|---|---|---|---|
+| [COMPARE_PT_ONNX.md](COMPARE_PT_ONNX.md) | `compare_pt_onnx_yolo.py` | .pt ↔ .onnx(关卡 A):框匹配 + 非 e2e 时解码张量 | PC 或板端(无需 NPU) | YOLOv8 / YOLO11 / YOLO26 |
+| [COMPARE_ONNX_RKNN.md](COMPARE_ONNX_RKNN.md) | `compare_onnx_rknn_yolo.py` | .onnx ↔ .rknn(关卡 B/C):原始张量 + NMS 框,不依赖 PyTorch | **RK3588 板端**(走 NPU) | YOLOv8 / YOLO11 / YOLO26 |
+| [COMPARE_PT_RKNN.md](COMPARE_PT_RKNN.md) | `compare_pt_rknn_yolo.py` | .pt ↔ .rknn **直接终验**:整集 match_rate / mean_iou 汇总 | RK3588 板端(PyTorch + NPU) | YOLOv8 / YOLO11 / YOLO26 |
+| [EXPORT_YOLO26_RKNN_I8.md](EXPORT_YOLO26_RKNN_I8.md) | — | YOLO26 → 6 路 raw ONNX → INT8 RKNN 完整导出流程(含避坑) | 转换机 | YOLO26,基于 [yolo26_rknn_ultralytics](https://gitee.com/jovan_qiao/yolo26_rknn_ultralytics) |
+
+> 新一代 `_yolo` 脚本是第一代脚本的升级版:`--family auto` 按 `Detect.reg_max` 自动识别模型族(1→YOLO26,16→v8/v11),自动适配 split6 / split9 / fused / e2e 四种输出布局,并输出整集汇总指标(match_rate 等)。两代脚本并存,本教程 3.1 / 6.2 节仍以第一代为例讲解思路,用法一致。
 
 ---
 
@@ -161,6 +178,8 @@ PYTHONPATH=/opt/ultralytics_yolo11 python ./ultralytics/engine/exporter.py
 > ⚠️ **不要用 ultralytics 官方的 `yolo export`**!官方 fork 在导出时对模型做了三处关键修改
 > (移除后处理结构、DFL 移到图外、增加置信度求和分支),demo 的后处理代码是按这个结构写的。
 > 用错导出方式,轻则跑不准,重则全程报错。官方 FAQ 明确说:自己模型跑不对,先检查是否按官方 fork 导出。
+>
+> 📌 如果你要部署的是 **YOLO26**:导出流程不同(6 路 raw 输出 + INT8 校准注意事项,直接用官方 pip 版会得到单输出、INT8 后板上 0 检出),完整步骤见 [EXPORT_YOLO26_RKNN_I8.md](EXPORT_YOLO26_RKNN_I8.md)。
 
 ### 2.1 安装 fork(注意:没有 requirements.txt!)
 
@@ -227,6 +246,8 @@ onnxsim helmet_y11s_best.onnx helmet_y11s_best_sim.onnx
 导出这一步理论上是**无损**的,输出应当几乎完全一致。有可见差异 = 出错了,不要往下走。
 
 ### 3.1 用配套脚本 compare_pt_onnx.py(推荐)
+
+> 📌 新一代多模型族脚本 `compare_pt_onnx_yolo.py`(支持 YOLOv8/11/26 自动识别)已加入本仓库,专项说明见 [COMPARE_PT_ONNX.md](COMPARE_PT_ONNX.md);本节仍以第一代脚本讲解,用法一致。
 
 本仓库自带的对比脚本,对每张测试图做**两层对比**并自动判 PASS/FAIL:
 
@@ -458,6 +479,8 @@ python yolo11.py --model_path helmet_y11s_best_i8.rknn --img_folder /root/code/r
 **类别名显示不对是正常的**:demo 的 `CLASSES` 写死 COCO 80 类。改成自己的类别即可,如 `CLASSES = ("helmet", "no_helmet")`(**顺序必须和训练时类别 ID 一致**)。框和分数不受影响。
 
 ### 6.2 量化精度验收(推荐:compare_onnx_rknn.py 直接对比 ONNX ↔ RKNN)
+
+> 📌 新一代脚本升级了这一步:`compare_onnx_rknn_yolo.py` 在 **RK3588 板端真 NPU** 上对比(不再只是模拟器,不依赖 PyTorch),专项说明见 [COMPARE_ONNX_RKNN.md](COMPARE_ONNX_RKNN.md);更有 [COMPARE_PT_RKNN.md](COMPARE_PT_RKNN.md) 提供 **.pt ↔ .rknn 直接终验**(整集 match_rate 汇总)。本节仍以第一代模拟器脚本讲解,适合没有板子在手的阶段。
 
 本仓库的 `compare_onnx_rknn.py` 用**同一张图、同一套前后处理**分别喂 ONNX 和 RKNN,逐路输出计算指标,再对检测框配对,自动给出 PASS / WARN / FAIL 结论。fp 版和 i8 版都能用它验:
 
