@@ -62,6 +62,19 @@ helmet_y11s_best_fp.rknn / helmet_y11s_best_i8.rknn
 
 > ONNX 必须完整；两边可用 `md5sum` 校验。
 
+### 2.1 类别名：改脚本顶部 `CLASS_NAMES`（不是命令行参数）
+
+新版脚本的类别名固化在脚本顶部，`nc = len(CLASS_NAMES)` 自动得出。**换自己的数据集必须改这一处**（修改前 → 修改后）：
+
+```python
+# 修改前（默认指向 COCO 80 类）：
+CLASS_NAMES: tuple[str, ...] = COCO_CLASS_NAMES
+# 修改后（切到你的类别组；组内顺序必须 = 训练/导出时的类别 ID）：
+CLASS_NAMES: tuple[str, ...] = HELMET_CLASS_NAMES
+```
+
+两组预设就定义在它上方（`HELMET_CLASS_NAMES = ("head", "helmet")`、`COCO_CLASS_NAMES = (...)`），新数据集在上方加一组再切换即可。**不改的后果**：推理和框匹配照常工作，但打印的类别名全是 COCO 名称，可视化图上的标签也是错的。
+
 ---
 
 ## 3. 怎么运行
@@ -77,7 +90,6 @@ python3 compare_onnx_rknn_yolo.py \
   --onnx safety_helmet_all.onnx \
   --rknn safety_helmet_all_i8.rknn \
   --source /userdata/jovan/code/rk3588/dataset/helmet/ \
-  --nc 2 --names head,helmet \
   --img_save
 ```
 
@@ -88,7 +100,6 @@ python3 compare_onnx_rknn_yolo.py \
   --onnx helmet_y11s_best.onnx \
   --rknn helmet_y11s_best_fp.rknn \
   --source /userdata/jovan/code/rk3588/dataset/helmet/ \
-  --nc 2 --names head,helmet \
   --img_save
 ```
 
@@ -99,7 +110,7 @@ python3 compare_onnx_rknn_yolo.py \
   --onnx helmet_y11s_best.onnx \
   --rknn helmet_y11s_best_i8.rknn \
   --out_dir ./compare_result_onnx_vs_rknn_i8 \
-  --nc 2 --names head,helmet \
+  --source /userdata/jovan/code/rk3588/dataset/helmet/ \
   --img_save
 ```
 
@@ -110,9 +121,12 @@ python3 compare_onnx_rknn_yolo.py \
   --onnx safety_helmet_all.onnx \
   --rknn safety_helmet_all_i8.rknn \
          ultralytics_src/safety_helmet_all-rk3588_i8.rknn \
-  --nc 2 --names head,helmet \
+  --source /userdata/jovan/code/rk3588/dataset/helmet/ \
   --img_save
 ```
+
+> 类别数与名称已由脚本顶部 `CLASS_NAMES` 固化（见 2.1 节），命令行不再传 `--nc/--names`。
+> 脚本会向上逐级查找 `py_utils` 目录定位 model_zoo；仍建议像上面这样放在 `rknn_model_zoo/examples/yolo11/python/` 下运行。
 
 ### 3.5 参数说明
 
@@ -121,12 +135,16 @@ python3 compare_onnx_rknn_yolo.py \
 | `--onnx` | `safety_helmet_all.onnx` | 源 ONNX（须与转 RKNN 时同一份） |
 | `--rknn` | `safety_helmet_all_i8.rknn` | 一块或多块 |
 | `--source` / `--img_folder` | helmet 目录 | 图片或目录（后者为别名） |
-| `--nc` / `--names` | `2` / `head,helmet` | 类别数与名称 |
+| `--out_dir` | `compare_result_onnx_vs_rknn` | 可视化输出目录 |
+| `--imgsz` | `640` | letterbox 边长 |
+| `--conf` / `--iou` / `--match-iou` | 0.25 / 0.7 / 0.5 | 阈值 |
 | `--family` | `auto` | 仅作提示；解码按通道数 |
 | `--box-scale` | `auto` | fused 框是否 ×imgsz |
-| `--conf` / `--iou` / `--match-iou` | 0.25 / 0.7 / 0.5 | 阈值 |
 | `--max_images` | `0` | 0=全部 |
-| `--img_save` / `--save_limit` | 关 / 5 | 可视化 |
+| `--img_save` / `--save_limit` | 关 / 5 | 可视化，最多存前 N 张 |
+| `--no-validate-onnx` | 关 | 跳过 onnx 包完整性校验（断点复跑时可省时间） |
+
+> 类别数与名称不再是命令行参数：改脚本顶部 `CLASS_NAMES`（见 2.1 节）。
 
 ---
 
@@ -251,7 +269,7 @@ box 通道：`reg_max=1` 直接回归；`reg_max=16` 做 DFL。9 路时忽略每
 数据集：`/userdata/jovan/code/rk3588/dataset/helmet/`，128 张。  
 ONNX：`safety_helmet_all.onnx`（fork 6 路）。  
 RKNN：`safety_helmet_all_i8.rknn`。  
-阈值：`conf=0.25`，NMS IoU=`0.7`，匹配 IoU=`0.5`，`--nc 2`。
+阈值：`conf=0.25`，NMS IoU=`0.7`，匹配 IoU=`0.5`，`CLASS_NAMES=HELMET_CLASS_NAMES`。
 
 命令：
 
@@ -259,8 +277,7 @@ RKNN：`safety_helmet_all_i8.rknn`。
 python3 compare_onnx_rknn_yolo.py \
   --onnx safety_helmet_all.onnx \
   --rknn safety_helmet_all_i8.rknn \
-  --source /userdata/jovan/code/rk3588/dataset/helmet/ \
-  --nc 2 --names head,helmet
+  --source /userdata/jovan/code/rk3588/dataset/helmet/
 ```
 
 | 指标 | 数值 |
@@ -306,7 +323,7 @@ python3 compare_onnx_rknn_yolo.py \
 
 ### 8.3 FP 也 FAIL
 
-核对：是否同一份 ONNX、mean/std=0/255、尺寸 640、`--nc` 是否正确。
+核对：是否同一份 ONNX、mean/std=0/255、尺寸 640、脚本顶部 `CLASS_NAMES` 是否切到了你的类别组。
 
 ### 8.4 fused i8 检不出框
 
