@@ -18,22 +18,25 @@ pt2rknn/
 ├── compare_pt_onnx_yolo.py      ← 新一代对比脚本:pt ↔ onnx(多模型族,见专项文档索引)
 ├── compare_onnx_rknn_yolo.py    ← 新一代对比脚本:onnx ↔ rknn(板端 NPU,见专项文档索引)
 ├── compare_pt_rknn_yolo.py      ← 新一代对比脚本:pt ↔ rknn 直接终验(见专项文档索引)
+├── compare_pt_rknn_yolov8_seg.py  ← 分割终验脚本:YOLOv8-seg .pt ↔ .rknn(检测框 + mask IoU)
 ├── COMPARE_PT_ONNX.md    ← 专项文档:pt ↔ onnx 对比(对应 compare_pt_onnx_yolo.py)
 ├── COMPARE_ONNX_RKNN.md  ← 专项文档:onnx ↔ rknn 对比(对应 compare_onnx_rknn_yolo.py)
 ├── COMPARE_PT_RKNN.md    ← 专项文档:pt ↔ rknn 终验(对应 compare_pt_rknn_yolo.py)
+├── COMPARE_PT_RKNN_YOLOV8_SEG.md  ← 专项文档:YOLOv8-seg 分割对比(对应 compare_pt_rknn_yolov8_seg.py)
 ├── EXPORT_YOLO26_RKNN_I8.md  ← 专项文档:YOLO26 → 6路 raw ONNX → INT8 RKNN 导出全流程
 ├── images/               ← 对比脚本默认的测试图目录(放你自己的测试图,当前有示例图)
 └── weight/               ← (按需创建)按脚本默认路径放 helmet_y11s_best.pt 和 helmet_y11s_best.onnx;
                              也可不建目录,直接用 --pt/--onnx 参数指定
 ```
 
-### 专项文档索引(新一代对比工具与 YOLO26 导出)
+### 专项文档索引(新一代对比工具、YOLO26 导出与实例分割)
 
 | 文档 | 对应脚本 | 对比/内容 | 运行位置 | 适用模型 |
 |---|---|---|---|---|
 | [COMPARE_PT_ONNX.md](COMPARE_PT_ONNX.md) | `compare_pt_onnx_yolo.py` | .pt ↔ .onnx(关卡 A):框匹配 + 非 e2e 时解码张量 | PC 或板端(无需 NPU) | YOLOv8 / YOLO11 / YOLO26 |
 | [COMPARE_ONNX_RKNN.md](COMPARE_ONNX_RKNN.md) | `compare_onnx_rknn_yolo.py` | .onnx ↔ .rknn(关卡 B/C):原始张量 + NMS 框,不依赖 PyTorch | **RK3588 板端**(走 NPU) | YOLOv8 / YOLO11 / YOLO26 |
 | [COMPARE_PT_RKNN.md](COMPARE_PT_RKNN.md) | `compare_pt_rknn_yolo.py` | .pt ↔ .rknn **直接终验**:整集 match_rate / mean_iou 汇总 | RK3588 板端(PyTorch + NPU) | YOLOv8 / YOLO11 / YOLO26 |
+| [COMPARE_PT_RKNN_YOLOV8_SEG.md](COMPARE_PT_RKNN_YOLOV8_SEG.md) | `compare_pt_rknn_yolov8_seg.py` | .pt ↔ .rknn **实例分割**终验:检测框 + **mask IoU** 双层对比(13 路 seg 布局) | RK3588 板端(PyTorch + NPU) | YOLOv8-seg |
 | [EXPORT_YOLO26_RKNN_I8.md](EXPORT_YOLO26_RKNN_I8.md) | — | YOLO26 → 6 路 raw ONNX → INT8 RKNN 完整导出流程(含避坑) | 转换机 | YOLO26,基于 [yolo26_rknn_ultralytics](https://gitee.com/jovan_qiao/yolo26_rknn_ultralytics) |
 
 > 新一代 `_yolo` 脚本是第一代脚本的升级版:`--family auto` 按 `Detect.reg_max` 自动识别模型族(1→YOLO26,16→v8/v11),自动适配 split6 / split9 / fused / e2e 四种输出布局,并输出整集汇总指标(match_rate 等)。两代脚本并存,本教程 3.1 / 6.2 节仍以第一代为例讲解思路,用法一致。
