@@ -109,4 +109,5 @@ python3 compare_pt_rknn_yolov8_seg.py \
 
 - RKNN 输入为 letterbox 后的 **NHWC uint8**（`mean=0,std=255`）  
 - `predict` 模式：PT 与 RKNN 后处理路径不完全相同，允许小差异；若要对齐 raw 数值，用 `--pt-mode raw`  
-- 分割对分辨率敏感：`--imgsz` 需与导出一致（默认 640）
+- `predict` 模式的 `masks.data` 在 letterbox 画布坐标系：脚本已做**去 pad 再映射回原图**（`masks_letterbox_to_orig`），修复非 1:1 图片上「框 IoU 很高、mask IoU 假性偏低」的错位问题  
+- 分割对分辨率敏感：`--imgsz` 需与导出一致（默认 640）  

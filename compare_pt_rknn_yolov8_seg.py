@@ -10,6 +10,8 @@ RKNN 侧后处理对齐本目录 yolov8_seg.py（13 路：每尺度 box/cls/scor
 与 demo 一致：丢弃 score_sum（分数用 ones）、cls 不做 sigmoid；仅 mask 插值尺寸跟 --imgsz。
 PT 默认走 ultralytics predict()（官方 .pt / seg 任务）；若是 zoo 风格 torchscript
 raw 权重，可用 --pt-mode raw 走与 RKNN 相同的 post_process。
+注意：predict 返回的 masks.data 常在 letterbox 画布上，脚本会先去 pad 再映回原图，
+避免「框 IoU 高、mask IoU 假性偏低」。
 
 注意：必须先 import torch，再 import rknnlite。
 
@@ -410,6 +412,67 @@ def infer_rknn_seg(
     return real_boxes, classes.astype(np.int64), scores.astype(np.float32), real_segs.astype(bool), outs
 
 
+def masks_letterbox_to_orig(
+    masks_lb: np.ndarray,
+    orig_hw: tuple[int, int],
+    imgsz: int,
+) -> np.ndarray:
+    """把 Ultralytics letterbox 画布上的 mask 映回原图像素。
+
+    ``predict`` 返回的 ``masks.data`` 常见形状为 ``(N, imgsz, imgsz)``（含 pad）。
+    若直接 ``resize`` 到原图，会把上下/左右黑边压进画面，导致 mask 纵向/横向错位，
+    而框已是原图坐标，从而出现「框 IoU 很高、mask IoU 很低」的假象。
+
+    Args:
+        masks_lb: ``(N, H_lb, W_lb)``，通常 H_lb=W_lb=imgsz。
+        orig_hw: 原图 ``(H, W)``。
+        imgsz: predict 用的边长（正方形 letterbox）。
+
+    Returns:
+        原图尺寸二值 mask，形状 ``(N, H, W)``。
+    """
+    oh, ow = int(orig_hw[0]), int(orig_hw[1])
+    if masks_lb.ndim != 3 or len(masks_lb) == 0:
+        return np.zeros((0, oh, ow), dtype=bool)
+
+    mh, mw = int(masks_lb.shape[1]), int(masks_lb.shape[2])
+    # 已是原图尺寸：直接二值化
+    if (mh, mw) == (oh, ow):
+        return masks_lb > 0.5
+
+    # 与 Ultralytics / COCO letter_box 一致：等比缩放后居中 pad
+    r = min(imgsz / oh, imgsz / ow)
+    nh = int(round(oh * r))
+    nw = int(round(ow * r))
+    dh = (imgsz - nh) / 2.0
+    dw = (imgsz - nw) / 2.0
+    top = int(round(dh - 0.1))
+    left = int(round(dw - 0.1))
+
+    out = []
+    for m in masks_lb:
+        # 若画布边长不是 imgsz（少见），按实际 mh/mw 估 pad
+        h_lb, w_lb = m.shape[:2]
+        if (h_lb, w_lb) == (imgsz, imgsz):
+            y0, x0 = top, left
+            y1, x1 = top + nh, left + nw
+        else:
+            r2 = min(h_lb / oh, w_lb / ow)
+            nh2, nw2 = int(round(oh * r2)), int(round(ow * r2))
+            y0 = int(round((h_lb - nh2) / 2.0 - 0.1))
+            x0 = int(round((w_lb - nw2) / 2.0 - 0.1))
+            y1, x1 = y0 + nh2, x0 + nw2
+        y0, x0 = max(0, y0), max(0, x0)
+        y1, x1 = min(h_lb, y1), min(w_lb, x1)
+        cropped = m[y0:y1, x0:x1]
+        if cropped.size == 0:
+            out.append(np.zeros((oh, ow), dtype=bool))
+            continue
+        resized = cv2.resize(cropped.astype(np.float32), (ow, oh), interpolation=cv2.INTER_LINEAR)
+        out.append(resized > 0.5)
+    return np.stack(out, axis=0)
+
+
 def infer_pt_predict(
     yolo,
     img_src: np.ndarray,
@@ -431,16 +494,10 @@ def infer_pt_predict(
     classes = res.boxes.cls.cpu().numpy().astype(np.int64)
     masks = None
     if res.masks is not None and len(res.masks) > 0:
-        # data: (N, mh, mw)，缩放到原图
+        # masks.data 多为 letterbox 画布，须先去 pad 再映回原图
         mdata = res.masks.data.cpu().numpy()
         oh, ow = img_src.shape[:2]
-        masks = np.stack(
-            [
-                cv2.resize(m.astype(np.float32), (ow, oh), interpolation=cv2.INTER_LINEAR) > 0.5
-                for m in mdata
-            ],
-            axis=0,
-        )
+        masks = masks_letterbox_to_orig(mdata, (oh, ow), imgsz)
     return boxes, classes, scores, masks
 
 
